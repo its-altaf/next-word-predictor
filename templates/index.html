@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Next Word — LSTM Predictor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #0F1210;
+    --panel: #171B18;
+    --panel-raised: #1D211E;
+    --paper: #E8E4D9;
+    --paper-dim: #A7A79A;
+    --muted: #6B7268;
+    --rule: #2A2F2B;
+    --amber: #E8A33D;
+    --amber-dim: rgba(232, 163, 61, 0.16);
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ink);
+    background-image:
+      repeating-linear-gradient(180deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px);
+    color: var(--paper);
+    font-family: 'IBM Plex Sans', sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 64px 20px 80px;
+  }
+
+  .sheet{
+    width: 100%;
+    max-width: 640px;
+  }
+
+  .eyebrow{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .eyebrow .dot{
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px 1px var(--amber);
+  }
+
+  h1{
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: clamp(28px, 5vw, 38px);
+    line-height: 1.15;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+
+  h1 .accent{ color: var(--amber); }
+
+  .sub{
+    color: var(--paper-dim);
+    font-size: 14.5px;
+    line-height: 1.55;
+    max-width: 46ch;
+    margin: 0 0 40px;
+  }
+
+  .terminal{
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 22px;
+  }
+
+  .terminal-label{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .input-wrap{
+    position: relative;
+  }
+
+  #ghost, #userInput{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 17px;
+    line-height: 1.6;
+    width: 100%;
+    min-height: 110px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    resize: none;
+  }
+
+  #ghost{
+    position: absolute;
+    top: 0; left: 0;
+    color: transparent;
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  #ghost .suggestion{
+    color: var(--muted);
+  }
+
+  #userInput{
+    position: relative;
+    color: var(--paper);
+    outline: none;
+    caret-color: var(--amber);
+  }
+
+  #userInput::placeholder{ color: var(--muted); }
+
+  .rule{
+    height: 1px;
+    background: var(--rule);
+    margin: 20px 0 18px;
+  }
+
+  .candidates-label{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .hint{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .hint kbd{
+    background: var(--panel-raised);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10.5px;
+  }
+
+  .candidates{
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .candidate{
+    flex: 1 1 140px;
+    background: var(--panel-raised);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--paper);
+    font-family: 'IBM Plex Mono', monospace;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+  }
+
+  .candidate:hover{
+    border-color: var(--amber);
+    transform: translateY(-1px);
+  }
+
+  .candidate:first-child{
+    border-color: var(--amber);
+    background: var(--amber-dim);
+  }
+
+  .candidate .word{
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  .meter{
+    height: 3px;
+    background: var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .meter-fill{
+    height: 100%;
+    background: var(--amber);
+    width: 0%;
+    transition: width 0.25s ease;
+  }
+
+  .confidence-pct{
+    font-size: 10px;
+    color: var(--paper-dim);
+    margin-top: 6px;
+    display: block;
+  }
+
+  .empty-state{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 6px 0;
+  }
+
+  footer{
+    margin-top: 28px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  footer code{
+    color: var(--paper-dim);
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="eyebrow"><span class="dot"></span>LSTM · LIVE INFERENCE</div>
+    <h1>What comes <span class="accent">next</span>?</h1>
+    <p class="sub">Type a phrase below. The model reads it one word at a time and predicts what's most likely to come after, updated as you type.</p>
+
+    <div class="terminal">
+      <div class="terminal-label">Input</div>
+      <div class="input-wrap">
+        <div id="ghost"></div>
+        <textarea id="userInput" placeholder="Start typing…" autofocus spellcheck="false"></textarea>
+      </div>
+
+      <div class="rule"></div>
+
+      <div class="candidates-label">
+        <span>Top predictions</span>
+        <span class="hint">tap a word, or <kbd>Tab</kbd> to accept the first</span>
+      </div>
+      <div class="candidates" id="candidates">
+        <div class="empty-state">Predictions will appear here once you start typing…</div>
+      </div>
+    </div>
+
+    <footer>served from a Flask endpoint — <code>/predict</code></footer>
+  </div>
+
+<script>
+  const input = document.getElementById('userInput');
+  const ghost = document.getElementById('ghost');
+  const candidatesEl = document.getElementById('candidates');
+
+  let debounceTimer = null;
+  let currentTopWord = '';
+
+  function renderGhost(topWord) {
+    const typed = input.value;
+    if (!topWord) {
+      ghost.innerHTML = escapeHtml(typed);
+      return;
+    }
+    const needsSpace = typed.length > 0 && !typed.endsWith(' ');
+    const suggestion = (needsSpace ? ' ' : '') + topWord;
+    ghost.innerHTML = escapeHtml(typed) + '<span class="suggestion">' + escapeHtml(suggestion) + '</span>';
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.innerText = str;
+    return div.innerHTML;
+  }
+
+  function renderCandidates(predictions) {
+    if (!predictions || predictions.length === 0) {
+      candidatesEl.innerHTML = '<div class="empty-state">No confident prediction yet — keep typing.</div>';
+      currentTopWord = '';
+      renderGhost('');
+      return;
+    }
+
+    currentTopWord = predictions[0].word;
+    renderGhost(currentTopWord);
+
+    candidatesEl.innerHTML = predictions.map(p => {
+      const pct = Math.round(p.confidence * 100);
+      return `
+        <button class="candidate" data-word="${p.word}">
+          <span class="word">${p.word}</span>
+          <span class="meter"><span class="meter-fill" style="width:${pct}%"></span></span>
+          <span class="confidence-pct">${pct}% confidence</span>
+        </button>
+      `;
+    }).join('');
+
+    document.querySelectorAll('.candidate').forEach(btn => {
+      btn.addEventListener('click', () => insertWord(btn.dataset.word));
+    });
+  }
+
+  function insertWord(word) {
+    const needsSpace = input.value.length > 0 && !input.value.endsWith(' ');
+    input.value += (needsSpace ? ' ' : '') + word + ' ';
+    input.focus();
+    fetchPrediction();
+  }
+
+  async function fetchPrediction() {
+    const text = input.value;
+    renderGhost(currentTopWord); // keep old ghost until new one arrives
+
+    try {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      renderCandidates(data.predictions);
+    } catch (err) {
+      candidatesEl.innerHTML = '<div class="empty-state">Couldn\'t reach the model — is app.py running?</div>';
+    }
+  }
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(fetchPrediction, 250);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && currentTopWord) {
+      e.preventDefault();
+      insertWord(currentTopWord);
+    }
+  });
+
+  input.addEventListener('scroll', () => {
+    ghost.scrollTop = input.scrollTop;
+  });
+</script>
+</body>
+</html>
